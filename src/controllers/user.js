@@ -8,42 +8,23 @@ controller.init = (app) => {
     userService.init(app);
 };
 
-
-controller.findByEmail = (req, res) => {
+controller.findByEmail = async (req, res) => {
     const email = req.params.email;
-
-    userService.findByEmail(email, (err, user) => {
-        if (err)
-            req.error = err;
-        else
-            req.data = user;
-        next(req, res);
-    });
+    req.data = await userService.findByEmail(email).catch(err => req.error = err);
+    next(req, res);
 };
 
-controller.logIn = (req, res) => {
+controller.logIn = async (req, res) => {
     const credentials = new Credentials().fromJson(req.body);
-
-    userService.logIn(credentials, (err, token) => {
-        if (err)
-            req.error = err;
-        else
-            req.data = token;
-        next(req, res);
-    });
+    req.data = await userService.logIn(credentials).catch(err => req.error = err);
+    next(req, res);
 };
 
 
-controller.signUp = (req, res) => {
+controller.signUp = async (req, res) => {
     const user = new User().fromJson(req.body);
-
-    userService.signUp(user, (err, user) => {
-        if (err)
-            req.error = err;
-        else
-            req.data = user;
-        next(req, res);
-    });
+    req.data = await userService.signUp(user).catch(err => req.error = err);
+    next(req, res);
 };
 
 module.exports = controller;
