@@ -32,13 +32,13 @@ service.init = (app) => {
     };
 
     service.wss.on('connection', (ws) => {
-        ws.on('message', (message) => {
+        ws.on('message', async (message) => {
             if (Util.isJson(message)) {
                 const data = JSON.parse(message);
                 if (data.operation === 'open') {
-                    processOpen(ws, data);
+                    await processOpen(ws, data);
                 } else if (data.operation === 'close') {
-                    processClose(data);
+                    await processClose(data);
                 } else if (data.operation === 'delete') {
                     processDelete(data);
                 } else if (data.operation === 'create') {
@@ -51,7 +51,7 @@ service.init = (app) => {
     });
 };
 
-function processOpen(ws, data) {
+async function processOpen(ws, data) {
     if (!users.includes(data.email)) {
         users.push(data.email);
         if (draws.length > 0) {
@@ -61,23 +61,16 @@ function processOpen(ws, data) {
                 data: draws
             }));
         }
-        if (users.length > 0) {
-            getUsers(users => {
-                service.wss.broadcastAll('list', 'users', users);
-            });
-        }
+        if (users.length > 0)
+            service.wss.broadcastAll('list', 'users', await getUsers());
     }
 }
 
-function processClose(data) {
+async function processClose(data) {
     for (let i = 0; i < users.length; i++) {
         if (users[i] === data.email) {
             users.splice(i, 1);
-            /*jshint -W083 */
-            getUsers(users => {
-                service.wss.broadcastAll('list', 'users', users);
-            });
-            return;
+            service.wss.broadcastAll('list', 'users', await getUsers());
         }
     }
 }
@@ -111,18 +104,19 @@ function processModify(data) {
     service.wss.broadcastOthers('modify', 'draw', draw, this);
 }
 
-function getUsers(callback) {
+async function getUsers() {
     let connectedUsers = [];
-    userService.findAll((err, usersDb) => {
-        for (let i = 0; i < usersDb.length; i++) {
-            let user = usersDb[i];
-            if (users.includes(user.email)) {
-                delete user.password;
-                connectedUsers.push(user);
-            }
+    const usersDb = await userService.findAll();
+
+    for (let i = 0; i < usersDb.length; i++) {
+        let user = usersDb[i];
+        if (users.includes(user.email)) {
+            delete user.password;
+            connectedUsers.push(user);
         }
-        callback(connectedUsers);
-    });
+    }
+
+    return new Promise(resolve => resolve(connectedUsers));
 }
 
 module.exports = service;

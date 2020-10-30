@@ -7,7 +7,9 @@ const express = require("express"),
     crypto = require("crypto"),
     http = require("http"),
     jwt = require("jsonwebtoken"),
-    uuid = require('uuid/v4'),
+    {
+        v4: uuid
+    } = require('uuid'),
     WebSocketServer = require('ws').Server,
     server = http.createServer(app),
     wss = new WebSocketServer({
@@ -15,7 +17,6 @@ const express = require("express"),
         path: "/draw"
     }),
     port = process.env.PORT || '4201';
-
 
 // Dotenv
 dotenv.config();

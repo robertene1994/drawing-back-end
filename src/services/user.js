@@ -12,184 +12,166 @@ service.init = (app) => {
     userDbManager.init(app);
 };
 
-service.findAll = (callback) => {
-    userDbManager.find({}, (err, usersDb) => {
-        if (err) {
-            callback(new BusinessException("user", `¡Ha ocurrido un problema 
-                inesperado durante el proceso de recuperación de usuarios!`));
-            return;
-        }
-
-        let users = [];
-
-        usersDb.forEach((userDb) => {
-            let user = new User().fromDb(userDb);
-            user.password = undefined;
-            users.push(user);
-
-            if (users.length === usersDb.length)
-                callback(undefined, users);
+service.findAll = () => {
+    return new Promise(async (resolve, reject) => {
+        const usersDb = await userDbManager.find({}).catch(_err => {
+            reject(new BusinessException("user",
+                "¡Ha ocurrido un problema inesperado durante el proceso de recuperación de usuarios!"));
         });
 
+        let users = [];
         if (usersDb.length === 0)
-            callback(undefined, users);
+            resolve(users);
+        else {
+            usersDb.forEach((userDb) => {
+                let user = new User().fromDb(userDb);
+                user.password = undefined;
+                users.push(user);
+
+                if (users.length === usersDb.length)
+                    resolve(users);
+            });
+        }
     });
+
 };
 
-service.findByEmail = (email, callback) => {
+service.findByEmail = (email) => {
+    return new Promise(async (resolve, reject) => {
+        if (Util.isNotNullOrEmpty(email) || !Util.isValidEmail(email)) {
+            reject(new BusinessException("email",
+                "¡El email del usuario debe segurir el formato string@string.string!"));
+        }
 
-    if (Util.isNotNullOrEmpty(email) || !Util.isValidEmail(email)) {
-        callback(new BusinessException("email", "¡El email del usuario " +
-            "debe segurir el formato string@string.string!"));
-        return;
-    }
+        const users = await userDbManager.find({
+            email: email
+        }).catch(_err => {
+            reject(new BusinessException("user",
+                "¡Ha ocurrido un problema inesperado durante el proceso de recuperación del usuario!"));
+        });
 
-    const query = {
-        email: email
-    };
-
-    userDbManager.find(query, (err, users) => {
-        if (err)
-            callback(new BusinessException("user", `¡Ha ocurrido un problema 
-                inesperado durante el proceso de recuperación del usuario!`));
-        else if (!users || users.length === 0)
-            callback(new BusinessException("user", "¡El email no se corresponde " +
-                "con ningún usuario de la base de datos!"));
+        if (!users || users.length === 0)
+            reject(new BusinessException("user",
+                "¡El email no se corresponde con ningún usuario de la base de datos!"));
         else {
             const user = users[0];
             delete user.password;
-            callback(undefined, new User().fromDb(user));
+            resolve(new User().fromDb(user));
         }
     });
 };
 
-service.logIn = (credentials, callback) => {
-    validateCredentials(credentials, (err) => {
-        if (err) {
-            callback(err);
-            return;
-        }
 
-        authenticateUser(credentials, (err, user) => {
-            if (err) {
-                callback(err);
-                return;
-            }
+service.logIn = async (credentials) => {
+    await validateCredentials(credentials);
+    if (await authenticateUser(credentials))
+        return service.jwt.sign({
+            user: credentials.email,
+            valid: Date.now() / 1000
+        }, service.sessionSecret);
+};
 
-            let token = service.jwt.sign({
-                user: credentials.email,
-                valid: Date.now() / 1000
-            }, service.sessionSecret);
-            callback(undefined, token);
+function authenticateUser(credentials) {
+    return new Promise(async (resolve, reject) => {
+        const encrPassword = service.crypto.createHmac("sha256", service.sessionSecret)
+            .update(credentials.password).digest("hex");
+
+        const users = await userDbManager.find({
+            email: credentials.email,
+            password: encrPassword
+        }).catch(_err => {
+            reject(new BusinessException("user",
+                `¡Ha ocurrido un problema inesperado durante el proceso autenticación del usuario!`));
         });
-    });
-};
 
-function authenticateUser(credentials, callback) {
-    let encrPassword = service.crypto.createHmac("sha256", service.sessionSecret)
-        .update(credentials.password).digest("hex");
-
-    let query = {
-        email: credentials.email,
-        password: encrPassword
-    };
-
-    userDbManager.find(query, (err, users) => {
-        if (err)
-            callback(new BusinessException("user", `¡Ha ocurrido un problema 
-                inesperado durante el proceso autenticación del usuario!`));
-        else if (!users || users.length === 0)
-            callback(new BusinessException("user",
-                "¡El correo electrónico y/o la contraseña son inválidos!"));
+        if (!users || users.length === 0)
+            reject(new BusinessException("user", "¡El correo electrónico y/o la contraseña son inválidos!"));
         else
-            callback(undefined, users[0]);
+            resolve(users[0]);
     });
 }
 
-service.signUp = (user, callback) => {
-    validateUser(user, (err) => {
-        if (err) {
-            callback(err);
-            return;
-        }
+service.signUp = async (user) => {
+    return new Promise(async (resolve, reject) => {
+        await validateUser(user);
 
-        checkIfUniqueEmail(user, (err) => {
-            if (err) {
-                callback(err);
-                return;
-            }
-
+        if (await checkIfUniqueEmail(user)) {
             user.password = service.crypto
                 .createHmac("sha256", service.sessionSecret)
                 .update(user.password).digest("hex");
 
-            userDbManager.save(user, (err, id) => {
-                if (err)
-                    callback(new BusinessException("user", `¡Ha ocurrido un problema 
-                        inesperado durante el proceso de creación del usuario!`));
-                else if (!id)
-                    callback(new BusinessException("id", `¡Ha ocurrido un problema 
-                        inesperado durante el proceso de almacenamiento del usuario!`));
-                else {
-                    let query = {
-                        "_id": service.mongo.ObjectID(id)
-                    };
-
-                    userDbManager.find(query, (err, users) => {
-                        if (err || !users || users.length === 0)
-                            callback(new BusinessException("user", `¡Ha ocurrido un problema 
-                                inesperado durante el proceso de creación del usuario!`));
-                        else
-                            callback(undefined, new User().fromDb(users[0]));
-                    });
-                }
+            const id = await userDbManager.save(user).catch(_err => {
+                console.log("asdas");
+                console.log(_err);
+                reject(new BusinessException("user",
+                    "¡Ha ocurrido un problema inesperado durante el proceso de creación del usuario!"));
             });
-        });
+            if (!id)
+                reject(new BusinessException("id",
+                    "¡Ha ocurrido un problema inesperado durante el proceso de almacenamiento del usuario!"));
+            else {
+                const users = await userDbManager.find({
+                    "_id": service.mongo.ObjectID(id)
+                }).catch(_err => {
+                    reject(new BusinessException("user",
+                        "¡Ha ocurrido un problema inesperado durante el proceso de creación del usuario!"));
+                });
+
+                if (!users || users.length === 0)
+                    reject(new BusinessException("user",
+                        "¡Ha ocurrido un problema inesperado durante el proceso de creación del usuario!"));
+                else
+                    resolve(new User().fromDb(users[0]));
+            }
+        }
     });
 };
 
-function checkIfUniqueEmail(user, callback) {
-    const query = {
-        email: user.email
-    };
+function checkIfUniqueEmail(user) {
+    return new Promise(async (resolve, reject) => {
+        const users = await userDbManager.find({
+            email: user.email
+        }).catch(_err => {
+            reject(new BusinessException("user",
+                "¡Ha ocurrido un problema insesperado durante el proceso de creación de la cuenta del usuario!"));
+        });
 
-    userDbManager.find(query, (err, users) => {
-        if (err)
-            callback(new BusinessException("user", `¡Ha ocurrido un problema 
-                insesperado durante el proceso de creación de la cuenta del usuario!`));
-        else if (users.length > 0)
-            callback(new BusinessException("email",
+        if (users.length > 0)
+            reject(new BusinessException("email",
                 "¡Ya existe en el sistema un usuario con el email introducido!"));
         else
-            callback(undefined);
+            resolve(true);
     });
 }
 
-function validateCredentials(credentials, callback) {
-    let error;
-    if (Util.isNotNullOrEmpty(credentials.email))
-        error = new BusinessException("email", "¡El email del usuario es obligatorio!");
-    else if (!Util.isValidEmail(credentials.email))
-        error = new BusinessException("email", "¡El email del usuario debe segurir el formato string@string.string!");
-    else if (Util.isNotNullOrEmpty(credentials.password))
-        error = new BusinessException("password", "¡La contraseña es obligatoria!");
-    callback(error);
+function validateCredentials(credentials) {
+    return new Promise((resolve, reject) => {
+        if (Util.isNotNullOrEmpty(credentials.email))
+            reject(new BusinessException("email", "¡El email del usuario es obligatorio!"));
+        else if (!Util.isValidEmail(credentials.email))
+            reject(new BusinessException("email", "¡El email del usuario debe segurir el formato string@string.string!"));
+        else if (Util.isNotNullOrEmpty(credentials.password))
+            reject(new BusinessException("password", "¡La contraseña es obligatoria!"));
+        else
+            resolve();
+    });
 }
 
-function validateUser(user, callback) {
-    let error;
-
-    if (Util.isNotNullOrEmpty(user.firstName))
-        error = new BusinessException("firstName", "¡El nombre del usuario es obligatorio!");
-    else if (Util.isNotNullOrEmpty(user.lastName))
-        error = new BusinessException("lastName", "¡Los apellidos del usuario son obligatorios!");
-    else if (Util.isNotNullOrEmpty(user.email))
-        error = new BusinessException("email", "¡El email del usuario es obligatorio!");
-    else if (!Util.isValidEmail(user.email))
-        error = new BusinessException("email", "¡El email del usuario debe segurir el formato string@string.string!");
-    else if (Util.isNotNullOrEmpty(user.password))
-        error = new BusinessException("email", "¡El email del usuario es obligatorio!");
-    callback(error);
+function validateUser(user) {
+    return new Promise((resolve, reject) => {
+        if (Util.isNotNullOrEmpty(user.firstName))
+            reject(new BusinessException("firstName", "¡El nombre del usuario es obligatorio!"));
+        else if (Util.isNotNullOrEmpty(user.lastName))
+            reject(new BusinessException("lastName", "¡Los apellidos del usuario son obligatorios!"));
+        else if (Util.isNotNullOrEmpty(user.email))
+            reject(new BusinessException("email", "¡El email del usuario es obligatorio!"));
+        else if (!Util.isValidEmail(user.email))
+            reject(new BusinessException("email", "¡El email del usuario debe segurir el formato string@string.string!"));
+        else if (Util.isNotNullOrEmpty(user.password))
+            reject(new BusinessException("email", "¡El email del usuario es obligatorio!"));
+        else
+            resolve(true);
+    });
 }
 
 module.exports = service;

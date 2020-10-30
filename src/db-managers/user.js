@@ -9,38 +9,26 @@ dbManager.init = (app) => {
     };
 };
 
-dbManager.save = (user, callback) => {
-    dbManager.client.connect(dbManager.dbUri, dbManager.dbOptions, (err, client) => {
-        if (err) {
-            callback(err);
-            return;
-        }
-
-        client.db("drawing").collection("users").insertOne(user, (err, result) => {
-            if (err)
-                callback(err);
-            else
-                callback(undefined, result.ops[0]._id);
+dbManager.save = async (user) => {
+    let client;
+    try {
+        client = await dbManager.client.connect(dbManager.dbUri, dbManager.dbOptions);
+        return (await client.db("drawing").collection("users").insertOne(user)).ops[0]._id;
+    } finally {
+        if (client)
             client.close();
-        });
-    });
+    }
 };
 
-dbManager.find = (query, callback) => {
-    dbManager.client.connect(dbManager.dbUri, dbManager.dbOptions, (err, client) => {
-        if (err) {
-            callback(err);
-            return;
-        }
-
-        client.db("drawing").collection("users").find(query).toArray(function (err, users) {
-            if (err)
-                callback(err);
-            else
-                callback(undefined, users);
+dbManager.find = async (query) => {
+    let client;
+    try {
+        client = await dbManager.client.connect(dbManager.dbUri, dbManager.dbOptions);
+        return await client.db("drawing").collection("users").find(query).toArray();
+    } finally {
+        if (client)
             client.close();
-        });
-    });
+    }
 };
 
 module.exports = dbManager;
