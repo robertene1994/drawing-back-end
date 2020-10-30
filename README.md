@@ -1,13 +1,13 @@
 <h1 align="center">
 	<img src="https://raw.githubusercontent.com/robertene1994/drawing-web/master/dist/img/logo.svg?sanitize=true" alt="Drawing" width="200">
 	<br>
-	drawing
+	Drawing
 </h1>
 <h4 align="center">
 	<img src="https://forthebadge.com/images/badges/made-with-javascript.svg"/>
 </h4>
 
-### Web application for collaborative drawing built with Node. It can be accessed at [Drawing](https://drawing-web.herokuapp.com).
+### Back-end application for collaborative drawing built with Node. It can be accessed at [Drawing](https://drawing-web.herokuapp.com).
 
 #### DevOps (CI/CD) ☁
 
